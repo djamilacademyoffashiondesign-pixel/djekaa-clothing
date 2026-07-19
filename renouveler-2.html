@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="fr" translate="no">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Renouvellement — Djekaa Clothing</title>
+<link rel="manifest" href='data:application/manifest+json,{"name":"Renouvellement Djekaa","short_name":"Djekaa 🔑","display":"standalone","background_color":"%230b0b0c","theme_color":"%230b0b0c","start_url":"./renouveler.html","icons":[]}'>
+<style>
+  :root{ --noir:#0b0b0c; --noir-doux:#16161a; --or:#c9a227; --or-clair:#e8c75e; --gris:#8a8a8f; --blanc:#f5f3ec; --vert:#3fae5c; --rouge:#c1473b; }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--noir);color:var(--blanc);font-family:'Helvetica Neue',Arial,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;}
+  .carte{max-width:360px;width:100%;background:var(--noir-doux);border:1px solid #2a2a2e;border-radius:14px;padding:26px 22px;text-align:center;}
+  h1{font-family:Georgia,serif;color:var(--or-clair);font-size:1.15rem;margin-bottom:4px;}
+  .sous{color:var(--gris);font-size:0.72rem;letter-spacing:0.06em;margin-bottom:20px;}
+  .etat{border-radius:10px;padding:14px;margin-bottom:18px;font-size:0.85rem;line-height:1.6;}
+  .etat.ok{background:rgba(63,174,92,0.12);border:1px solid rgba(63,174,92,0.4);color:#7fd39a;}
+  .etat.bientot{background:rgba(232,120,50,0.15);border:1px solid rgba(232,120,50,0.6);color:#f0a05a;}
+  .etat.expire{background:rgba(193,71,59,0.15);border:1px solid rgba(193,71,59,0.6);color:#e07b6f;}
+  .etat strong{display:block;font-size:1.05rem;margin-top:4px;color:var(--blanc);}
+  label{display:block;text-align:left;color:var(--gris);font-size:0.72rem;margin:12px 0 4px;}
+  input{width:100%;padding:12px;background:#1f1f23;border:1px solid #34343a;border-radius:8px;color:var(--blanc);font-size:0.95rem;}
+  button{width:100%;margin-top:18px;padding:14px;background:var(--or);color:var(--noir);border:none;border-radius:8px;font-weight:800;font-size:0.9rem;cursor:pointer;}
+  .note{margin-top:14px;color:var(--gris);font-size:0.68rem;line-height:1.5;}
+  #message{margin-top:12px;font-size:0.8rem;min-height:1.2em;}
+  .rapide{display:flex;gap:8px;margin-top:8px;}
+  .rapide button{margin-top:0;padding:10px;font-size:0.75rem;background:none;border:1px solid #34343a;color:var(--or-clair);font-weight:700;}
+</style>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+</head>
+<body>
+<div class="carte">
+  <h1>🔑 Renouvellement</h1>
+  <div class="sous">DJEKAA CLOTHING — OUTIL PRESTATAIRE · v3</div>
+  <div id="etat" class="etat ok">Chargement de la licence...</div>
+  <label>Votre code prestataire</label>
+  <input id="code" type="password" placeholder="••••••••">
+  <label>Nouvelle date d'expiration (AAAA-MM-JJ)</label>
+  <input id="date" type="date">
+  <div class="rapide">
+    <button onclick="ajouterMois(1)">+1 mois</button>
+    <button onclick="ajouterMois(3)">+3 mois</button>
+    <button onclick="ajouterMois(12)">+1 an</button>
+  </div>
+  <button onclick="renouveler()">✅ Renouveler l'abonnement</button>
+  <div id="message"></div>
+  <div class="note">Cette page n'accède qu'à la licence.<br>Aucune donnée client (commandes, finances, contacts) n'est chargée ni visible ici.</div>
+</div>
+<script>
+/* Cette page se connecte au projet Firebase de Djekaa mais ne lit et n'écrit
+   QU'UN SEUL document : parametres/licence. Les commandes, clients et
+   finances ne sont jamais chargés — respect total de la vie privée du client. */
+const firebaseConfig = {
+  apiKey: "AIzaSyDOczZXGLsS1G3ZKX90cR1h0cW2fxlKoV0",
+  authDomain: "djekaa-clothing.firebaseapp.com",
+  projectId: "djekaa-clothing",
+  storageBucket: "djekaa-clothing.firebasestorage.app",
+  messagingSenderId: "611378933597",
+  appId: "1:611378933597:web:4b6eb6674ebbc5219c02b4"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
+const HASH_PRESTATAIRE = 1894588126;
+function empreinteCode(s){
+  /* Normalisation : majuscules, on ignore tirets/espaces — le clavier du
+     téléphone peut remplacer le tiret ou changer la casse sans prévenir. */
+  s = (s||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+  let h = 5381;
+  for(let i=0; i<s.length; i++){ h = ((h * 33) + s.charCodeAt(i)) >>> 0; }
+  return h;
+}
+let expireActuelle = null;
+
+function joursRestants(expireLe){
+  const exp = new Date(expireLe + 'T23:59:59');
+  if(isNaN(exp)) return null;
+  return Math.floor((exp - new Date()) / 86400000);
+}
+async function chargerLicence(){
+  const zone = document.getElementById('etat');
+  try{
+    const doc = await db.collection('parametres').doc('licence').get();
+    if(doc.exists && doc.data().expireLe){
+      expireActuelle = doc.data().expireLe;
+      const j = joursRestants(expireActuelle);
+      document.getElementById('date').value = expireActuelle;
+      if(j < 0){
+        zone.className = 'etat expire';
+        zone.innerHTML = '🔒 Abonnement EXPIRÉ depuis le ' + expireActuelle + '<strong>' + Math.abs(j) + ' jour(s) de retard</strong>';
+      } else if(j <= 7){
+        zone.className = 'etat bientot';
+        zone.innerHTML = '⚠️ Expire le ' + expireActuelle + '<strong>' + j + ' jour(s) restant(s)</strong>';
+      } else {
+        zone.className = 'etat ok';
+        zone.innerHTML = '✅ Abonnement actif jusqu\'au ' + expireActuelle + '<strong>' + j + ' jours restants</strong>';
+      }
+    } else {
+      zone.className = 'etat bientot';
+      zone.textContent = 'Aucune licence trouvée — elle sera créée à la première ouverture de l\'app cliente.';
+    }
+  }catch(e){
+    zone.className = 'etat expire';
+    zone.textContent = 'Connexion impossible — vérifiez votre réseau.';
+  }
+}
+function ajouterMois(n){
+  const base = expireActuelle && joursRestants(expireActuelle) >= 0 ? new Date(expireActuelle+'T12:00:00') : new Date();
+  base.setMonth(base.getMonth() + n);
+  document.getElementById('date').value = base.toISOString().slice(0,10);
+}
+async function renouveler(){
+  const msg = document.getElementById('message');
+  const code = document.getElementById('code').value;
+  const nouvelle = document.getElementById('date').value;
+  if(empreinteCode(code.trim()) !== HASH_PRESTATAIRE){
+    msg.style.color = 'var(--rouge)'; msg.textContent = '❌ Code prestataire incorrect'; return;
+  }
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(nouvelle)){
+    msg.style.color = 'var(--rouge)'; msg.textContent = '❌ Choisissez une date valide'; return;
+  }
+  msg.style.color = 'var(--gris)'; msg.textContent = 'Enregistrement...';
+  try{
+    await db.collection('parametres').doc('licence').set({
+      expireLe: nouvelle,
+      misAJourLe: firebase.firestore.FieldValue.serverTimestamp()
+    }, {merge:true});
+    msg.style.color = 'var(--vert)';
+    msg.textContent = '✅ Abonnement renouvelé jusqu\'au ' + nouvelle;
+    expireActuelle = nouvelle;
+    chargerLicence();
+  }catch(e){
+    msg.style.color = 'var(--rouge)'; msg.textContent = '❌ Erreur réseau — réessayez';
+  }
+}
+chargerLicence();
+</script>
+</body>
+</html>
