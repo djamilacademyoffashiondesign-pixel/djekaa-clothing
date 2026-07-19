@@ -1015,8 +1015,16 @@ db.enablePersistence({synchronizeTabs:true}).then(()=>{
    de blocage ou le lien discret sous Sign out, entrer le code prestataire,
    puis la nouvelle date AAAA-MM-JJ. La dernière date connue est gardée en
    localStorage pour que le blocage tienne aussi hors-ligne. */
-const CODE_PRESTATAIRE = 'DAFD-2026';
+/* Le code prestataire n'est JAMAIS écrit en clair ici : seule son empreinte
+   (hash) est stockée. Même en lisant le code source, impossible de retrouver
+   le code — seul le prestataire le connaît. */
+const HASH_PRESTATAIRE = 2386006027;
 const CONTACT_PRESTATAIRE = '+220 7628683';
+function empreinteCode(s){
+  let h = 5381;
+  for(let i=0; i<s.length; i++){ h = ((h * 33) + s.charCodeAt(i)) >>> 0; }
+  return h;
+}
 
 function joursRestantsLicence(expireLe){
   const exp = new Date(expireLe + 'T23:59:59');
@@ -1098,7 +1106,7 @@ async function verifierLicence(){
 async function renouvelerLicence(){
   const code = prompt('Provider code:');
   if(code === null) return;
-  if(code.trim() !== CODE_PRESTATAIRE){ toast('Incorrect provider code'); return; }
+  if(empreinteCode(code.trim()) !== HASH_PRESTATAIRE){ toast('Incorrect provider code'); return; }
   const actuel = localStorage.getItem('licence_expireLe') || '';
   const nouvelle = prompt('New expiry date (YYYY-MM-DD):', actuel);
   if(!nouvelle || !/^\d{4}-\d{2}-\d{2}$/.test(nouvelle.trim())){ toast('Invalid date — use YYYY-MM-DD'); return; }
