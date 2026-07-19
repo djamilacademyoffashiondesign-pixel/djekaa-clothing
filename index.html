@@ -1018,9 +1018,10 @@ db.enablePersistence({synchronizeTabs:true}).then(()=>{
 /* Le code prestataire n'est JAMAIS écrit en clair ici : seule son empreinte
    (hash) est stockée. Même en lisant le code source, impossible de retrouver
    le code — seul le prestataire le connaît. */
-const HASH_PRESTATAIRE = 2386006027;
+const HASH_PRESTATAIRE = 1894588126;
 const CONTACT_PRESTATAIRE = '+220 7628683';
 function empreinteCode(s){
+  s = (s||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
   let h = 5381;
   for(let i=0; i<s.length; i++){ h = ((h * 33) + s.charCodeAt(i)) >>> 0; }
   return h;
