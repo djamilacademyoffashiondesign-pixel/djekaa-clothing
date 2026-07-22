@@ -1,8 +1,7 @@
 /* Service worker — instance Djekaa (SanaaPro)
-   IMPORTANT : toutes les boutiques SanaaPro partagent maintenant le meme
-   domaine (sanaapro.github.io). Les caches d'un service worker sont communs
-   a tout le domaine, PAS au dossier. Le nom du cache doit donc contenir le
-   nom de la boutique, sinon une boutique effacerait les fichiers d'une autre. */
+   Les boutiques SanaaPro partagent le meme domaine (sanaapro.github.io).
+   Les caches sont communs a tout le domaine, PAS au dossier : le nom du
+   cache doit contenir le nom de la boutique. */
 const CACHE = 'sanaapro-djekaa-v1';
 const PREFIXE = 'sanaapro-djekaa-';
 
@@ -11,9 +10,9 @@ const A_PRECHARGER = [
   './index.html',
   './config.js',
   './manifest.json',
-  './icon-192.png',
-  './icon-512.png',
-  './icon-512-maskable.png'
+  './icon-192-1.png',
+  './icon-512-1.png',
+  './icon-512-maskable-1.png'
 ];
 
 self.addEventListener('install', (e) => {
@@ -26,7 +25,6 @@ self.addEventListener('install', (e) => {
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys().then((noms) => Promise.all(
-      /* On ne supprime que NOS anciennes versions, jamais celles d'une autre boutique. */
       noms.filter((n) => n.startsWith(PREFIXE) && n !== CACHE)
           .map((n) => caches.delete(n))
     )).then(() => self.clients.claim())
@@ -38,16 +36,11 @@ self.addEventListener('fetch', (e) => {
   if (req.method !== 'GET') return;
 
   const url = new URL(req.url);
-
-  /* Ne jamais intercepter Firebase, Google, les CDN ni WhatsApp :
-     ces requetes doivent toujours partir directement sur le reseau. */
   if (url.origin !== self.location.origin) return;
 
   const estNavigation = req.mode === 'navigate';
   const estManifeste = url.pathname.endsWith('manifest.json');
 
-  /* Reseau d'abord pour la navigation et le manifeste : l'app et l'icone
-     ne restent jamais bloquees sur une vieille version en cache. */
   if (estNavigation || estManifeste) {
     e.respondWith(
       fetch(req)
@@ -61,8 +54,6 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  /* Cache d'abord pour le reste du statique (icones, config), avec
-     rafraichissement en arriere-plan. */
   e.respondWith(
     caches.match(req).then((cached) => {
       const reseau = fetch(req).then((rep) => {
