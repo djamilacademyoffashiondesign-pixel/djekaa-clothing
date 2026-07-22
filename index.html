@@ -5,6 +5,9 @@
   var PAIRS = [
     ["Gestion Atelier · Pressing · Boutique","Workshop · Dry Cleaning · Boutique Management"],
     ["En ligne — synchronisé","Online — synced"],
+    ["Message prêt — touchez pour l'envoyer","Message ready — tap to send it"],
+    ["Ouvrir WhatsApp","Open WhatsApp"],
+    ["Annuler","Cancel"],
     ["Messages clients :","Client messages:"],
     ["Messages clients","Client messages"],
     ["Déconnexion","Log out"],
@@ -1432,6 +1435,50 @@ function lienWhatsApp(tel,message){
   return 'https://wa.me/'+numeroComplet+'?text='+encodeURIComponent(message);
 }
 
+/* ===================== OUVERTURE WHATSAPP FIABLE (100% additif) =====================
+   PROBLEME CORRIGE : window.open() appele apres un await / .then() / setTimeout est
+   bloque SILENCIEUSEMENT par le navigateur (blocage de pop-up), parce qu'il n'est plus
+   rattache a un clic direct de l'utilisateur. C'etait exactement le cas apres la creation
+   d'une commande (await genererCode + await televerserPhoto) et apres un changement de
+   statut (.then de Firestore) : le message WhatsApp ne partait jamais, sans aucune erreur.
+   En PWA installee (mode standalone) le blocage est encore plus systematique.
+   SOLUTION : on tente l'ouverture ; si le navigateur la refuse, on affiche une banniere
+   avec un VRAI lien <a> que l'utilisateur touche — un clic sur une ancre reelle n'est
+   jamais bloque. Rien d'autre dans l'app n'est modifie. */
+function ouvrirWhatsApp(lien){
+  if(!lien) return;
+  var fenetre = null;
+  try{ fenetre = window.open(lien, '_blank'); }catch(e){ fenetre = null; }
+  if(!fenetre || fenetre.closed || typeof fenetre.closed === 'undefined'){
+    afficherBanniereWhatsApp(lien);
+  }
+}
+function afficherBanniereWhatsApp(lien){
+  try{
+    var ancienne = document.getElementById('banniere-whatsapp');
+    if(ancienne && ancienne.parentNode) ancienne.parentNode.removeChild(ancienne);
+    var box = document.createElement('div');
+    box.id = 'banniere-whatsapp';
+    box.style.cssText = 'position:fixed;left:12px;right:12px;bottom:16px;z-index:99999;background:#111;border:2px solid #25D366;border-radius:14px;padding:14px;box-shadow:0 10px 30px rgba(0,0,0,.65);text-align:center;';
+    var p = document.createElement('div');
+    p.textContent = "Message prêt — touchez pour l'envoyer";
+    p.style.cssText = 'color:#eee;font-size:14px;margin-bottom:10px;';
+    var a = document.createElement('a');
+    a.href = lien; a.target = '_blank'; a.rel = 'noopener';
+    a.textContent = 'Ouvrir WhatsApp';
+    a.style.cssText = 'display:block;background:#25D366;color:#06301a;font-weight:800;font-size:17px;padding:14px;border-radius:10px;text-decoration:none;';
+    a.addEventListener('click', function(){ setTimeout(function(){ if(box.parentNode) box.parentNode.removeChild(box); }, 400); });
+    var x = document.createElement('button');
+    x.type = 'button';
+    x.textContent = 'Annuler';
+    x.style.cssText = 'margin-top:10px;background:none;border:none;color:#999;font-size:13px;text-decoration:underline;';
+    x.addEventListener('click', function(){ if(box.parentNode) box.parentNode.removeChild(box); });
+    box.appendChild(p); box.appendChild(a); box.appendChild(x);
+    document.body.appendChild(box);
+    setTimeout(function(){ if(box.parentNode) box.parentNode.removeChild(box); }, 90000);
+  }catch(e){ console.error('Banniere WhatsApp indisponible', e); }
+}
+
 /* ================= NAVIGATION ================= */
 document.querySelectorAll('.tab-btn').forEach(btn=>{
   btn.addEventListener('click',()=>{
@@ -1557,7 +1604,13 @@ function viderChampsMesuresAtelier(){
      automatiquement, pour ne jamais mélanger les mesures de deux personnes). */
 function trouverClientExistant(nom, tel){
   if(!nom) return null;
-  const memeNom = CACHE.clients_mesures.filter(c=>c.nom===nom);
+  /* Comparaison tolerante (correctif "mesure qui disparait") : avant, le nom devait
+     correspondre au CARACTERE PRES. "fatima", "Fatima" ou "Fatima " creaient donc une
+     NOUVELLE fiche vide au lieu de retrouver la fiche existante, et les mesures
+     semblaient avoir disparu (en realite : un doublon vide). */
+  const norm = (v)=>String(v==null?'':v).trim().toLowerCase().replace(/\s+/g,' ');
+  const cible = norm(nom);
+  const memeNom = CACHE.clients_mesures.filter(c=>norm(c.nom)===cible);
   if(memeNom.length===0) return null;
   if(tel){
     const telNettoye = tel.replace(/[^0-9]/g,'');
@@ -1598,8 +1651,8 @@ function tenterResolutionParTelephone(prefixe){
     document.getElementById('m-baspantalon').value=client.basPantalon||'';
     document.getElementById('m-longhaut').value=client.longHaut||'';
     document.getElementById('m-longpantalon').value=client.longPantalon||'';
-    document.getElementById('m-longrobe').value = client.genre==='Femme' ? (client.longRobe||'') : '';
-    document.getElementById('m-longjupe').value = client.genre==='Femme' ? (client.longJupe||'') : '';
+    document.getElementById('m-longrobe').value = client.longRobe||'';
+    document.getElementById('m-longjupe').value = client.longJupe||'';
     toast('Mesures pré-remplies (client identifié par son téléphone)');
   } else {
     document.getElementById('ms-edit-id').value = client.id;
@@ -1620,8 +1673,8 @@ function tenterResolutionParTelephone(prefixe){
     document.getElementById('ms-baspantalon').value=client.basPantalon||'';
     document.getElementById('ms-longhaut').value=client.longHaut||'';
     document.getElementById('ms-longpantalon').value=client.longPantalon||'';
-    document.getElementById('ms-longrobe').value = client.genre==='Femme' ? (client.longRobe||'') : '';
-    document.getElementById('ms-longjupe').value = client.genre==='Femme' ? (client.longJupe||'') : '';
+    document.getElementById('ms-longrobe').value = client.longRobe||'';
+    document.getElementById('ms-longjupe').value = client.longJupe||'';
     toast('Fiche identifiée par téléphone — mise à jour à l\'enregistrement');
   }
 }
@@ -1653,8 +1706,8 @@ function remplirDepuisClientExistant(){
   document.getElementById('m-baspantalon').value=client.basPantalon||'';
   document.getElementById('m-longhaut').value=client.longHaut||'';
   document.getElementById('m-longpantalon').value=client.longPantalon||'';
-  document.getElementById('m-longrobe').value = client.genre==='Femme' ? (client.longRobe||'') : '';
-  document.getElementById('m-longjupe').value = client.genre==='Femme' ? (client.longJupe||'') : '';
+  document.getElementById('m-longrobe').value = client.longRobe||'';
+  document.getElementById('m-longjupe').value = client.longJupe||'';
   toast('Mesures pré-remplies depuis le carnet d\'adresses');
 }
 /* Même principe que ci-dessus, mais pour le formulaire dédié de l'onglet Mesures :
@@ -1696,8 +1749,8 @@ function remplirDepuisClientExistantMesures(){
   document.getElementById('ms-baspantalon').value=client.basPantalon||'';
   document.getElementById('ms-longhaut').value=client.longHaut||'';
   document.getElementById('ms-longpantalon').value=client.longPantalon||'';
-  document.getElementById('ms-longrobe').value = client.genre==='Femme' ? (client.longRobe||'') : '';
-  document.getElementById('ms-longjupe').value = client.genre==='Femme' ? (client.longJupe||'') : '';
+  document.getElementById('ms-longrobe').value = client.longRobe||'';
+  document.getElementById('ms-longjupe').value = client.longJupe||'';
   toast('Fiche existante chargée — modification mise à jour à l\'enregistrement');
 }
 function mettreAJourListeClients(){
@@ -1888,7 +1941,7 @@ async function ajouterCommande(){
       const lien=lienWhatsApp(cmd.tel, msg);
       if(lien){
         const ouvrir = confirm('Commande créée (Code '+code+'). Envoyer la facture complète par WhatsApp au client ?');
-        if(ouvrir) window.open(lien, "_blank");
+        if(ouvrir) ouvrirWhatsApp(lien);
       }
     }
   } catch(err){
@@ -1982,7 +2035,7 @@ function changerStatutAtelier(id,statut){
       if(etape){
         const msg = construireMessageNotification('Atelier', statut, c2.nom, resumeArticles(c2), c2.prix, c2.acompte, c2.code);
         const lien = lienWhatsApp(c2.tel, msg);
-        if(lien) setTimeout(()=>window.open(lien,'_blank'), 500);
+        if(lien) ouvrirWhatsApp(lien);
       }
     }
   });
@@ -2110,7 +2163,7 @@ async function marquerSoldePayeAtelier(id){
     const lien=lienWhatsApp(c.tel, msg);
     if(lien){
       const ouvrir = confirm('Envoyer une confirmation de paiement par WhatsApp à '+c.nom+' ?');
-      if(ouvrir) window.open(lien, "_blank");
+      if(ouvrir) ouvrirWhatsApp(lien);
     }
   }
 }
@@ -2192,7 +2245,7 @@ function envoyerNotificationWhatsAppDynamique(nomClient, telephone, typeActivite
   const message = construireMessageNotification(typeActivite, statut, nomClient, detailCommande, total, acompte, code);
   if(message !== ""){
     const urlFinal = lienWhatsApp(telephone, message);
-    if(urlFinal) window.open(urlFinal, "_blank");
+    if(urlFinal) ouvrirWhatsApp(urlFinal);
   } else {
     toast(texteMsg('⚠️ Aucun modèle de message pour ce statut', '⚠️ No message template for this status'));
   }
@@ -2598,7 +2651,7 @@ async function ajouterTicket(){
       )
         + (photoURL ? texteMsg(`\nPhoto de vos articles: ${photoURL}`, `\nPhoto of your items: ${photoURL}`) : '');
       const lien=lienWhatsApp(tel, msg);
-      if(lien) window.open(lien, "_blank");
+      if(lien) ouvrirWhatsApp(lien);
     }
   } catch(err){
     toast('Erreur: '+err.message);
@@ -2684,7 +2737,7 @@ function changerStatutPressing(id,statut){
       if(etape){
         const msg = construireMessageNotification('Pressing', statut, t.nom, t.resume, t.prix, t.avance, t.code);
         const lien = lienWhatsApp(t.tel, msg);
-        if(lien) setTimeout(()=>window.open(lien,'_blank'), 500);
+        if(lien) ouvrirWhatsApp(lien);
       }
     }
   });
@@ -2779,7 +2832,7 @@ async function marquerSoldePayePressing(id){
     const lien=lienWhatsApp(t.tel, msg);
     if(lien){
       const ouvrir = confirm('Envoyer une confirmation de paiement par WhatsApp à '+t.nom+' ?');
-      if(ouvrir) window.open(lien, "_blank");
+      if(ouvrir) ouvrirWhatsApp(lien);
     }
   }
 }
@@ -3029,7 +3082,7 @@ function cloturerLaJournee(){
   if(lien){
     if(confirm('Envoyer le résumé de clôture par WhatsApp au propriétaire ?\nCette action est définitive.')){
       afficherEcranSucces('Journée clôturée avec succès', 'Total reçu: '+totalRecu+' D — Solde net: '+solde+' D');
-      setTimeout(()=>{ window.open(lien, "_blank"); }, 1200);
+      ouvrirWhatsApp(lien);
     }
   } else {
     toast('Numéro invalide — vérifiez-le via "Changer le numéro du propriétaire"');
@@ -3450,30 +3503,43 @@ choisirGenreMesures('Homme');
 function enregistrerMesure(){
   const nom=document.getElementById('ms-nom').value.trim();
   if(!nom){ toast('Entrez le nom du client'); return; }
+  const idEdition = document.getElementById('ms-edit-id').value;
+  /* FUSION (correctif "mesure qui disparait") : on ne remplace JAMAIS une mesure
+     deja enregistree par une case laissee vide. Le meme principe existait deja pour
+     les commandes de l'atelier (synchroniserCarnetAdresses) mais PAS ici : l'onglet
+     Mesures reecrivait les 18 champs a chaque enregistrement, donc toute mesure non
+     re-saisie (champ non rempli, champ Robe/Jupe masque en mode Homme, fiche chargee
+     partiellement) etait ecrasee par du vide. */
+  const ancienne = CACHE.clients_mesures.find(c=>c.id===idEdition) || {};
+  const val = (id, cle)=>{
+    const el = document.getElementById(id);
+    const saisi = el ? String(el.value==null?'':el.value).trim() : '';
+    if(saisi !== '') return saisi;
+    return (ancienne[cle]!=null ? ancienne[cle] : '');
+  };
   const fiche={
     nom,
-    tel:document.getElementById('ms-tel').value.trim(),
+    tel:document.getElementById('ms-tel').value.trim() || (ancienne.tel||''),
     genre:genreMesures,
-    cou:document.getElementById('ms-cou').value,
-    epaule:document.getElementById('ms-epaule').value,
-    poitrine:document.getElementById('ms-poitrine').value,
-    longManche:document.getElementById('ms-longmanche').value,
-    tourManche:document.getElementById('ms-tourmanche').value,
-    poignet:document.getElementById('ms-poignet').value,
-    tourTaille:document.getElementById('ms-tourtaille').value,
-    longTaille:document.getElementById('ms-longtaille').value,
-    ceinture:document.getElementById('ms-ceinture').value,
-    bassin:document.getElementById('ms-bassin').value,
-    cuisse:document.getElementById('ms-cuisse').value,
-    pince:document.getElementById('ms-pince').value,
-    tourGenou:document.getElementById('ms-tourgenou').value,
-    basPantalon:document.getElementById('ms-baspantalon').value,
-    longHaut:document.getElementById('ms-longhaut').value,
-    longPantalon:document.getElementById('ms-longpantalon').value,
-    longRobe: genreMesures==='Femme' ? document.getElementById('ms-longrobe').value : '',
-    longJupe: genreMesures==='Femme' ? document.getElementById('ms-longjupe').value : ''
+    cou:val('ms-cou','cou'),
+    epaule:val('ms-epaule','epaule'),
+    poitrine:val('ms-poitrine','poitrine'),
+    longManche:val('ms-longmanche','longManche'),
+    tourManche:val('ms-tourmanche','tourManche'),
+    poignet:val('ms-poignet','poignet'),
+    tourTaille:val('ms-tourtaille','tourTaille'),
+    longTaille:val('ms-longtaille','longTaille'),
+    ceinture:val('ms-ceinture','ceinture'),
+    bassin:val('ms-bassin','bassin'),
+    cuisse:val('ms-cuisse','cuisse'),
+    pince:val('ms-pince','pince'),
+    tourGenou:val('ms-tourgenou','tourGenou'),
+    basPantalon:val('ms-baspantalon','basPantalon'),
+    longHaut:val('ms-longhaut','longHaut'),
+    longPantalon:val('ms-longpantalon','longPantalon'),
+    longRobe:val('ms-longrobe','longRobe'),
+    longJupe:val('ms-longjupe','longJupe')
   };
-  const idEdition = document.getElementById('ms-edit-id').value;
 
   /* Affichage immédiat dans "Fiches clients", sans attendre le serveur. */
   if(idEdition){
@@ -3836,14 +3902,14 @@ function ajouterAvanceSalaire(employeId, nomEmploye){
         `Hello ${nomEmploye}, your salary for ${moisAffichage(mois)} (${salaireMensuel} D) has been paid in full. Thank you for your work this month! 🙏`
       );
       const lien = lienWhatsApp(employe.tel, msg);
-      if(lien) window.open(lien, '_blank');
+      if(lien) ouvrirWhatsApp(lien);
     } else {
       const msg = texteMsg(
         `Bonjour ${nomEmploye}, une avance de ${montant} D a été notée sur votre salaire de ${moisAffichage(mois)}. Total des avances notées: ${montantVerseTotal} D. La déduction se fera en fin de mois — solde prévu: ${soldeRestant} D.`,
         `Hello ${nomEmploye}, an advance of ${montant} D has been noted on your ${moisAffichage(mois)} salary. Total advances noted: ${montantVerseTotal} D. The deduction will be applied at the end of the month — expected balance: ${soldeRestant} D.`
       );
       const lien = lienWhatsApp(employe.tel, msg);
-      if(lien) window.open(lien, '_blank');
+      if(lien) ouvrirWhatsApp(lien);
     }
   }
   toast('Versement enregistré');
@@ -3950,7 +4016,7 @@ async function payerSoldeMois(employeId, nomEmploye){
       `Hello ${nomEmploye}, your ${moisAffichage(mois)} salary has been paid in full: ${salaireMensuel} D (including ${avances} D of advances already received, balance paid: ${solde} D). Thank you for your work this month! 🙏`
     );
     const lien = lienWhatsApp(employe.tel, msg);
-    if(lien) window.open(lien, '_blank');
+    if(lien) ouvrirWhatsApp(lien);
   }
   toast('Solde du mois payé — '+nomEmploye);
 }
